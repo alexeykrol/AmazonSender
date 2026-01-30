@@ -1,115 +1,109 @@
-# Оркестратор: общие контракты + карта параллельных задач + мини‑ТЗ
+# Оркестратор: AmazonSender — общие контракты + карта параллельных задач + мини‑ТЗ
 
-Документ для запуска параллельных подзадач разными агентами.
+Документ для запуска параллельных подзадач разными агентами в рамках AmazonSender.
 
 ---
 
 ## 1) Общие контракты (единые для всех задач)
 
 ### 1.1 Глобальные правила
-- Ничего не перезаписываем: только версии (`version`, `is_current`).
-- Везде хранить `project_id` (multi‑tenant Supabase).
-- Медицинские/юридические советы запрещены.
-- Анонимизация данных перед LLM.
-- Данные до авторизации сохраняем как анонимные сессии.
+- **Не менять продуктовый код**: правки только в `framework/docs`, `framework/review`, `framework/migration`, `framework/logs`.
+- Исполнитель stateless; вся логика опирается на Notion + Supabase.
+- Повторная отправка запрещена (кроме тестового режима).
+- Rate limit отправки: 5–6 писем/сек (настраиваемо через env).
+- Логи могут содержать e‑mail (маскировка не требуется).
 
-### 1.2 Схемы данных (входные файлы)
-См. **`docs/data-templates-ru.md`**:
-- `plans_2026.csv`
-- `zip_rating_map_2026.csv`
-- `fpl_2026.csv`
-- `slcsp_2026.csv`
+### 1.2 Входные данные
+- CSV экспорт GetResponse (пример: `Waite.csv`) → импорт в Supabase.
+- Notion базы: «Письма» и «Ошибки».
+- Контент письма хранится в Notion (страница + блоки).
 
 ### 1.3 БД‑контракты (минимальный набор)
-- `plans`
-- `rating_area_map`
-- `questionnaires` (versioned)
-- `reports` (versioned)
-- `chat_sessions`, `chat_messages` (versioned)
-- `users` (link to Supabase auth)
-- `subscriptions`, `token_balance`
-- Все таблицы содержат `project_id`.
+- `subscribers` (основная таблица из импорта GetResponse) + поля:
+  - `status` (active | unsubscribed | bounced)
+  - `bounce_type`, `bounce_subtype`, `status_updated_at`
+  - `from_name`
+- (опционально) `send_logs` для локального трекинга ошибок отправки.
+- Хранение mailout в БД не требуется (источник — Notion).
 
 ### 1.4 API/поведение (минимум)
-- Wizard → данные анкеты → расчет → результаты.
-- Results → Report → PDF.
-- What‑If → расчёт в реальном времени.
+- `POST /send-mailout` — запуск рассылки из Notion webhook.
+- `GET /unsubscribe?token=...` — отписка.
+- `POST /ses-events` — bounce/complaint/delivery из SNS.
 
 ### 1.5 Логирование
-- Логи LLM и промптов сохраняем (анонимизированно).
-- Сессии диалога сохраняем полностью.
+- Ошибки пишем в Notion (таблица «Ошибки») + CSV по каждой рассылке.
+- Технические логи (консоль/файл).
 
 ---
 
 ## 2) Карта задач и параллельность
 
-### Можно делать параллельно (без взаимных блокировок)
-1) **Data Research** (таблицы A–D по шаблону)
-2) **DB schema + migrations + RLS**
-3) **Business Logic** (APTC, сценарии, скоринг)
-4) **UI/UX** (подбор Tailwind UI компонентов + макеты)
-5) **PDF генерация** (на синтетике)
-6) **LLM prompts/policies**
-7) **Unit + E2E tests (mock data)**
-8) **DevOps (Vercel env, deploy pipelines)**
-9) **Test Plan (independent)** (по ТЗ и DoD)
-10) **Review Handoff Prep** (пакет для независимого ревью)
-11) **Framework Review (post-run)** (анализ работы фреймворка)
-12) **Legacy Migration (read‑only)** (аудит, reverse‑spec, gap, plan)
+### Можно делать параллельно
+1) **DB schema + migrations (Supabase)**
+2) **Business Logic (Executor Service)**
+3) **UI/UX (Notion tables only)**
+4) **Tests (unit/integration/e2e)**
+5) **DevOps (Vercel env/deploy)**
+6) **Test Plan (independent)**
+7) **Review Handoff Prep**
+8) **Independent Review**
+9) **Framework Review (post-run)**
 
 ### Зависимости
-- UI зависит от выбора Tailwind UI компонентов (по протоколу).
-- Реальные расчёты субсидий точнее после реальных таблиц (A–D).
-- Интеграции (Supabase/Auth, Stripe/PayPal, SES) — после базового каркаса.
-- Независимый Review выполняется после ключевых dev‑задач + Test Plan.
-- Framework Review выполняется только между прогонами (post‑run).
+- Business Logic зависит от полей в Notion + Supabase.
+- Tests зависят от схемы и логики.
+- Review требует Test Plan + ключевых артефактов.
 
 ---
 
 ## 3) Мини‑ТЗ и промпты по задачам
 
-### 3.1 Data Research (A–D)
-**Цель:** собрать официальные таблицы 2026 года.
-- Использовать `docs/deep-research-prompt-ru.md`.
-- Выход: 4 CSV + `sources.md` + `issues.md` + `summary.md`.
+### 3.1 Data Research
+**Не применяется** (нет внешних таблиц A–D).
 
-### 3.2 DB Schema + RLS
-**Цель:** миграции Supabase для всех сущностей + RLS.
-- Учитывать `project_id`.
-- Применить AES‑256 шифрование в приложении перед записью.
+### 3.2 DB Schema + (optional) RLS
+**Цель:** описать миграции/SQL для Supabase:
+- Добавить к `subscribers` поля `status`, `bounce_type`, `bounce_subtype`, `status_updated_at`, `from_name`.
+- Опционально добавить `send_logs` (mailout_id, email, status, error_message, created_at).
+- RLS: если включаем — разрешить доступ только сервисной роли.
 
 ### 3.3 Business Logic
-**Цель:** реализовать расчет субсидий и сценариев.
-- APTC формулы (FPL 2026, expected contribution до 8.5%).
-- 4 сценария + cap `(premium*12 + MOOP)`.
-- Return-subsidy сценарии (+50/100/200/300/500%).
+**Цель:** реализовать исполнитель рассылки:
+- Чтение записи письма из Notion (subject + body).
+- Конвертация Notion blocks → HTML + plain‑text.
+- Добавление footer (адрес + unsubscribe) из env.
+- Тестовый режим (is_test) → отправка на TEST_EMAILS.
+- Не‑тест → отправка только `status=active` из Supabase.
+- Rate limit 5–6 писем/сек; батчи 50, concurrency 1.
+- SNS: bounce/complaint/delivery → обновить статусы/метрики.
+- Отчёт в Notion + таблица ошибок + CSV.
 
-### 3.4 UI/UX (Tailwind UI)
-**Цель:** подобрать компоненты по списку экранов.
-- Использовать `docs/screens-list-ru.md`.
-- Сначала выбрать шаблоны в `Claude-Cowork/TAILWIND_UI_CATALOG.md`.
+### 3.4 UI/UX
+**Цель:** описать Notion‑структуру:
+- Таблица «Письма»: поля темы/тела, статус (Send/Failed), is_test, sent_at, метрики.
+- Таблица «Ошибки»: поля из ТЗ.
+- Никаких отдельных веб‑экранов на старте.
 
 ### 3.5 PDF‑генерация
-**Цель:** PDF‑отчет в платном плане.
-- Включить все секции (таблицы, сценарии, источники, дисклеймеры).
+**Не применяется**.
 
 ### 3.6 LLM Prompts/Policies
-**Цель:** промпты для чата и финального анализа.
-- Соблюдать запреты (no medical/legal advice).
-- Сохранять reasoning/объяснение отдельно.
+**Не применяется**.
 
 ### 3.7 Tests
-**Цель:** автоматизация (unit + Playwright).
-- Unit: APTC, сценарии, скоринг.
-- E2E: Anonymous → Wizard → Payment (mock) → PDF.
+**Цель:** unit + integration + e2e:
+- Unit: конвертация контента, footer, парсер TEST_EMAILS, валидация webhook подписи.
+- Integration: Notion/Supabase/SES/SNS моки.
+- E2E: тестовая рассылка на TEST_EMAILS.
 
 ### 3.8 DevOps
-**Цель:** deploy pipeline на Vercel.
-- main → prod, develop → staging, feature → preview.
-- ENV per environment.
+**Цель:** деплой в Vercel:
+- Подготовка env‑переменных, GitHub интеграция.
+- Локальная отладка перед деплоем.
 
 ### 3.9 Test Plan (Independent)
-**Цель:** составить независимый план тестирования.
+**Цель:** независимый план тестирования.
 - Основание: ТЗ + DoD.
 - Выход: `framework/review/test-plan.md`.
 - Без изменения кода.
@@ -139,31 +133,14 @@
 - Выход: исправления в коде фреймворка.
 - Запускать только между прогонами.
 
-### 3.14 Legacy Migration (read-only)
-**Цель:** проанализировать legacy‑проект и подготовить безопасный план миграции.
-- Вход: репозиторий (read‑only), `framework/docs/orchestrator-plan-ru.md`.
-- Выход: `framework/migration/legacy-snapshot.md`, `framework/migration/legacy-tech-spec.md`,
-  `framework/migration/legacy-gap-report.md`, `framework/migration/legacy-risk-assessment.md`,
-  `framework/migration/legacy-migration-plan.md`, `framework/migration/legacy-migration-proposal.md`,
-  `framework/migration/rollback-plan.md`.
-- Запуск: `python3 framework/orchestrator/orchestrator.py --phase legacy`.
-- Далее (обязательный шаг user‑flow): интерактивное интервью discovery (поддерживает `/pause` для паузы и последующего продолжения).
-- Изменения применяются только после approval и в отдельной ветке.
-
-### 3.15 Legacy Apply (manual)
-**Цель:** применить изменения в отдельной ветке после одобрения.
-- Вход: `framework/migration/approval.md`, `framework/migration/legacy-migration-plan.md`.
-- Выход: изменения в ветке `legacy-migration`.
-- Запуск: `python3 framework/orchestrator/orchestrator.py --phase legacy --include-manual`.
-
 ---
 
 ## 4) Общие входы (креды/данные)
-См. `docs/inputs-required-ru.md`.
+См. `docs/data-inputs-generated.md`.
 
 ---
 
 ## 5) Ссылки
-- `docs/tech-spec-ru.md`
-- `docs/tech-addendum-1-ru.md`
-- `docs/qa-ru.md`
+- `docs/tech-spec-generated.md`
+- `docs/plan-generated.md`
+- `docs/data-inputs-generated.md`

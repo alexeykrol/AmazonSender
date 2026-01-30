@@ -1,19 +1,32 @@
-# План работ (self-host devframework)
+# План работ — AmazonSender
 
-## Этапы
-1) Завершить discovery и сформировать артефакты.
-2) Запустить main‑фазу оркестратора (no‑op или реальная).
-3) Провести post‑run framework review.
-4) Исправления по баг‑репортам, повторный прогон.
+## Этап 0. Закрыть TODO/ASSUMPTION
+- Настроить Notion webhook, пройти верификацию, сохранить verification_token.
+- Выбрать стратегию конвертации Notion → HTML/Markdown + plain‑text (MVP‑набор блоков).
+- Определить источник картинок: внешние URL или re‑fetch Notion file URL перед отправкой.
+- Включить SES event publishing (Delivery/Bounce/Complaint) → SNS.
 
-## Параллелизация
-- Использовать карту задач из `docs/orchestrator-plan-ru.md`.
-- UI после выбора компонентов; реальные расчёты после данных.
+## Этап 1. Подготовка данных и окружения
+- Импорт CSV GetResponse в Supabase.
+- Добавить `status`, `bounce_type`, `bounce_subtype`, `status_updated_at`, `from_name`.
+- Создать таблицы Notion: «Письма», «Ошибки».
+- Подготовить env (SES, Supabase, Notion, тестовые адреса, rate limit, base URL).
 
-## Риски
-- Недостаток данных/кредов → стоп‑точка с запросом.
-- Worktree коллизии → валидации preflight.
+## Этап 2. Реализация Executor Service
+- Эндпоинты: `/send-mailout`, `/unsubscribe`, `/ses-events`.
+- Интеграции: Notion API (чтение/обновление), Supabase, SES, SNS.
+- Алгоритм отправки с rate limit и тестовым режимом.
+- Формирование footer и plain‑text версии.
 
-## Definition of Done
-- Main→post прогон завершён без ошибок.
-- Артефакты сгенерированы и связаны.
+## Этап 3. Отчётность и ошибки
+- Запись отчёта по рассылке в Notion.
+- Таблица ошибок в Notion + CSV по рассылке.
+- Логи взаимодействий с Notion/SES/Supabase.
+
+## Этап 4. Тестирование
+- Автотесты логики ошибок и критичных сценариев.
+- Smoke‑прогон на тестовых адресах.
+
+## Этап 5. Деплой
+- Локальная отладка.
+- Деплой в Vercel через GitHub, настройка env‑секретов.
