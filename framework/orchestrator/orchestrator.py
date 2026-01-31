@@ -149,15 +149,21 @@ def format_template(value, **kwargs):
 def ensure_worktree(project_root: Path, worktree_path: Path, branch: str):
     if worktree_path.exists():
         if not is_git_worktree(worktree_path):
-            raise RuntimeError(
-                f"Worktree path exists but is not a git worktree: {worktree_path}"
-            )
-        if not is_same_git_repo(project_root, worktree_path):
+            # If path exists but is not a worktree, check if it's empty
+            if worktree_path.is_dir() and not any(worktree_path.iterdir()):
+                # Remove empty directory and proceed with worktree creation
+                worktree_path.rmdir()
+            else:
+                raise RuntimeError(
+                    f"Worktree path exists but is not a git worktree: {worktree_path}"
+                )
+        elif not is_same_git_repo(project_root, worktree_path):
             raise RuntimeError(
                 "Worktree path exists but belongs to a different git repository: "
                 f"{worktree_path}"
             )
-        return
+        else:
+            return
     if branch_exists(project_root, branch):
         cmd = f"git worktree add {worktree_path} {branch}"
         res = run(cmd, cwd=project_root)
@@ -392,6 +398,19 @@ def preflight(project_root: Path, logs_dir: Path, runners: dict, tasks: list, ph
         raise RuntimeError("Preflight failed:\n- " + "\n- ".join(errors))
 
 
+def choose_codex_home(project_root: Path) -> str:
+    if os.getenv("CODEX_HOME"):
+        return os.environ["CODEX_HOME"]
+    global_home = Path.home() / ".codex"
+    try:
+        global_home.mkdir(parents=True, exist_ok=True)
+        if os.access(global_home, os.W_OK):
+            return str(global_home)
+    except Exception:
+        pass
+    return str(resolve_path("framework/.codex", project_root))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="framework/orchestrator/orchestrator.json")
@@ -414,8 +433,9 @@ def main():
     if not is_git_repo(project_root):
         raise RuntimeError(f"project_root is not a git repository: {project_root}")
 
-    # Keep Codex session data inside the project unless explicitly overridden.
-    os.environ.setdefault("CODEX_HOME", str(resolve_path("framework/.codex", project_root)))
+    # Prefer global Codex home to avoid repeated logins; fallback to project.
+    if "CODEX_HOME" not in os.environ:
+        os.environ["CODEX_HOME"] = choose_codex_home(project_root)
 
     runners = cfg.get("runners", {})
     if bool_from_env(os.getenv("FRAMEWORK_RUNNER_NOOP")):
@@ -779,7 +799,7 @@ def main():
     elif args.phase == "discovery":
         if paused_tasks:
             print("Discovery paused. Re-run to continue:")
-            print("  ./install-framework.sh")
+            print("  ./install-fr.sh")
         elif failed_run:
             print("Discovery failed. Check logs and summary for details:")
             print(f"  {summary_run}")
