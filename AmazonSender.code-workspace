@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../devframework"
+		}
+	],
+	"settings": {
+		"claudeCode.preferredLocation": "sidebar",
+		"claudeCode.environmentVariables": [
+
+		]
+	}
+}
