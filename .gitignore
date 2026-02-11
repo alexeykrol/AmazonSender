@@ -44,11 +44,9 @@ logs/
 *.log
 npm-debug.log*
 
-# Framework
-.claude/.last_session
-.claude/logs/
-dialog/
-
 # Temporary files
 *.tmp
 *.temp
+
+# Local quarantine archives (framework sanitation)
+_archive_framework_cleanup_*/
