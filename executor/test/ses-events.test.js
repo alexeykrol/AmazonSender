@@ -51,9 +51,15 @@ function createSupabaseStub() {
   return {
     updates,
     from: () => ({
+      upsert: (payload) => ({
+        select: async () => {
+          updates.push({ payload, email: payload.email });
+          return { data: [{ ...payload }], error: null };
+        }
+      }),
       update: (payload) => ({
         eq: async (_field, value) => {
-          updates.push({ payload, email: value });
+          updates.push({ payload: { email: value, ...payload }, email: value });
           return { data: [{ email: value, ...payload }], error: null };
         }
       })

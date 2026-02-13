@@ -26,10 +26,14 @@ async function fetchActiveSubscribers(client) {
 }
 
 async function updateSubscriberStatus(client, email, updates) {
+  if (!email) throw new Error('email_required');
+  // Use upsert so unsubscribe/bounce events still record a suppression entry
+  // even if the email is not yet present in the subscribers table.
+  const payload = { email, ...updates };
   const { data, error } = await client
     .from('subscribers')
-    .update(updates)
-    .eq('email', email);
+    .upsert(payload, { onConflict: 'email' })
+    .select();
   if (error) throw error;
   return data;
 }
