@@ -71,10 +71,35 @@ module.exports = async function handler(req, res) {
 
   const eventType = payload.notificationType || payload.eventType || payload.event_type;
   const mail = payload.mail || {};
-  const destination = mail.destination || [];
-  const email = destination[0];
+  const destination = Array.isArray(mail.destination) ? mail.destination : [];
 
-  if (email) {
+  function extractRecipients() {
+    const set = new Set();
+    if (eventType === 'Bounce') {
+      const bounced = payload.bounce?.bouncedRecipients;
+      if (Array.isArray(bounced)) {
+        for (const r of bounced) {
+          if (r?.emailAddress) set.add(String(r.emailAddress).toLowerCase());
+        }
+      }
+    } else if (eventType === 'Complaint') {
+      const complained = payload.complaint?.complainedRecipients;
+      if (Array.isArray(complained)) {
+        for (const r of complained) {
+          if (r?.emailAddress) set.add(String(r.emailAddress).toLowerCase());
+        }
+      }
+    }
+    if (set.size === 0) {
+      for (const e of destination) {
+        if (e) set.add(String(e).toLowerCase());
+      }
+    }
+    return Array.from(set);
+  }
+
+  const emails = extractRecipients();
+  for (const email of emails) {
     if (eventType === 'Bounce') {
       const bounce = payload.bounce || {};
       await updateSubscriberStatus(supabase, email, {

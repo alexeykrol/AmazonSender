@@ -405,26 +405,53 @@ app.post('/ses-events', async (req, res) => {
     }
     const eventType = payload.notificationType || payload.eventType || payload.event_type;
     const mail = payload.mail || {};
-    const destination = mail.destination || [];
-    const email = destination[0];
+    const destination = Array.isArray(mail.destination) ? mail.destination : [];
 
-    if (!email) return res.json({ ok: true });
+    function extractRecipients() {
+      const set = new Set();
+      if (eventType === 'Bounce') {
+        const bounced = payload.bounce?.bouncedRecipients;
+        if (Array.isArray(bounced)) {
+          for (const r of bounced) {
+            if (r?.emailAddress) set.add(String(r.emailAddress).toLowerCase());
+          }
+        }
+      } else if (eventType === 'Complaint') {
+        const complained = payload.complaint?.complainedRecipients;
+        if (Array.isArray(complained)) {
+          for (const r of complained) {
+            if (r?.emailAddress) set.add(String(r.emailAddress).toLowerCase());
+          }
+        }
+      }
+      if (set.size === 0) {
+        for (const e of destination) {
+          if (e) set.add(String(e).toLowerCase());
+        }
+      }
+      return Array.from(set);
+    }
 
-    if (eventType === 'Bounce') {
-      const bounce = payload.bounce || {};
-      await updateSubscriberStatus(supabase, email, {
-        status: 'bounced',
-        bounce_type: bounce.bounceType,
-        bounce_subtype: bounce.bounceSubType,
-        status_updated_at: new Date().toISOString()
-      });
-    } else if (eventType === 'Complaint') {
-      await updateSubscriberStatus(supabase, email, {
-        status: 'unsubscribed',
-        status_updated_at: new Date().toISOString()
-      });
-    } else if (eventType === 'Delivery') {
-      // No status change; can be used for metrics.
+    const emails = extractRecipients();
+    if (emails.length === 0) return res.json({ ok: true });
+
+    for (const email of emails) {
+      if (eventType === 'Bounce') {
+        const bounce = payload.bounce || {};
+        await updateSubscriberStatus(supabase, email, {
+          status: 'bounced',
+          bounce_type: bounce.bounceType,
+          bounce_subtype: bounce.bounceSubType,
+          status_updated_at: new Date().toISOString()
+        });
+      } else if (eventType === 'Complaint') {
+        await updateSubscriberStatus(supabase, email, {
+          status: 'unsubscribed',
+          status_updated_at: new Date().toISOString()
+        });
+      } else if (eventType === 'Delivery') {
+        // No status change; can be used for metrics.
+      }
     }
 
     res.json({ ok: true });
