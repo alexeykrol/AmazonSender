@@ -1,4 +1,5 @@
 const path = require('path');
+const { parseBoolEnv } = require('./safety');
 
 const env = process.env;
 
@@ -78,7 +79,8 @@ const config = {
 
   supabase: {
     url: getEnv('SUPABASE_URL'),
-    serviceRoleKey: getEnv('SUPABASE_SERVICE_ROLE_KEY')
+    serviceRoleKey: getEnv('SUPABASE_SERVICE_ROLE_KEY'),
+    projectRef: getEnv('SUPABASE_PROJECT_REF')
   },
 
   aws: {
@@ -107,7 +109,10 @@ const config = {
   },
 
   csvOutputDir: getEnv('CSV_OUTPUT_DIR', path.join(process.cwd(), 'out')),
-  executorSharedSecret: getEnv('EXECUTOR_SHARED_SECRET')
+  executorSharedSecret: getEnv('EXECUTOR_SHARED_SECRET'),
+  runtime: {
+    dryRunSend: parseBoolEnv(getEnv('DRY_RUN_SEND'), false)
+  }
 };
 
 module.exports = { config, getEnv, requireEnv, parseTestEmails };

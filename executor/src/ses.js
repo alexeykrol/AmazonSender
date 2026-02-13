@@ -1,6 +1,7 @@
 const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
 
 function createSesClient(config) {
+  if (!config) return null;
   if (!config.region || !config.accessKeyId || !config.secretAccessKey) return null;
   return new SESClient({
     region: config.region,

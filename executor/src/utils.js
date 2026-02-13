@@ -20,7 +20,7 @@ function dedupEmails(records) {
 }
 
 function isLikelyEmail(email) {
-  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 function extractMailoutId(payload) {
@@ -46,4 +46,44 @@ function extractMailoutId(payload) {
   return null;
 }
 
-module.exports = { sleep, normalizeEmail, dedupEmails, extractMailoutId, isLikelyEmail };
+function resolveRecipientName(recipient) {
+  const explicitName = recipient?.from_name || recipient?.name;
+  if (explicitName && String(explicitName).trim()) {
+    return String(explicitName).trim();
+  }
+
+  const email = normalizeEmail(recipient?.email);
+  if (!email) return '';
+
+  const localPart = email.split('@')[0] || '';
+  return localPart
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function applyTemplate(template, variables = {}) {
+  if (template === undefined || template === null) return '';
+  const normalizedVars = {};
+  for (const [key, value] of Object.entries(variables)) {
+    normalizedVars[String(key).toLowerCase()] = value == null ? '' : String(value);
+  }
+
+  return String(template).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (full, rawKey) => {
+    const key = String(rawKey).toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(normalizedVars, key)) {
+      return full;
+    }
+    return normalizedVars[key];
+  });
+}
+
+module.exports = {
+  sleep,
+  normalizeEmail,
+  dedupEmails,
+  extractMailoutId,
+  isLikelyEmail,
+  resolveRecipientName,
+  applyTemplate
+};

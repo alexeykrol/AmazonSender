@@ -1,0 +1,9 @@
+id,campaign,name,email,sign_up
+1,"Test Campaign","John Doe",john@example.com,"2025-01-01"
+2,"Test Campaign","Jane Smith",jane@test.org,"2025-01-02"
+3,"Test Campaign",,invalid-email,"2025-01-03"
+4,"Test Campaign","Bob Wilson",bob@example.com,"2025-01-04"
+5,"Test Campaign","Alice Brown",ALICE@TEST.ORG,"2025-01-05"
+6,"Test Campaign","John Doe",JOHN@EXAMPLE.COM,"2025-01-06"
+7,"Test Campaign",,,"2025-01-07"
+8,"Test Campaign","Valid User",valid@domain.com,"2025-01-08"

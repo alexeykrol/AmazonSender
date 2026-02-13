@@ -13,95 +13,155 @@ const { createUnsubToken, verifyUnsubToken } = require('./unsubscribe');
 const { verifyNotionSignature } = require('./notion-signature');
 const { verifySnsSignature, confirmSubscription } = require('./sns');
 const { appendCsvRow } = require('./csv');
-const { sleep, dedupEmails, extractMailoutId, isLikelyEmail } = require('./utils');
+const { sleep, dedupEmails, extractMailoutId, isLikelyEmail, resolveRecipientName, applyTemplate } = require('./utils');
 const { buildErrorProperties } = require('./errors');
+const { acquireLock, releaseLock } = require('./idempotency');
 
-const logger = createLogger(config.logLevel);
-const notion = createNotionClient(config.notion.token);
-const supabase = createSupabase(config.supabase.url, config.supabase.serviceRoleKey);
-const sesClient = createSesClient(config.aws);
+/**
+ * Creates and configures the Express app with optional dependency injection.
+ * @param {Object} deps - Optional dependencies for testing
+ * @param {Object} deps.notion - Notion client
+ * @param {Object} deps.supabase - Supabase client
+ * @param {Object} deps.sesClient - SES client
+ * @param {Object} deps.config - Configuration object
+ * @param {Object} deps.logger - Logger instance
+ * @returns {Express.Application} Configured Express app
+ */
+function createApp(deps = {}) {
+  // Initialize appConfig FIRST to avoid TDZ
+  const appConfig = deps.config || config;
 
-const app = express();
-app.use(express.json({
-  verify: (req, _res, buf) => {
-    req.rawBody = buf;
-  }
-}));
+  const logger = deps.logger || createLogger(appConfig.logLevel);
+  const notion = deps.notion || createNotionClient(appConfig.notion.token);
 
-function authSharedSecret(req) {
-  if (!config.executorSharedSecret) return true;
-  const token = req.headers['x-auth-token'] || req.body?.auth_token;
-  return token === config.executorSharedSecret;
-}
-
-function buildNotionUpdateProps(page, updates) {
-  const props = page.properties || {};
-  const result = {};
-  for (const [propName, value] of Object.entries(updates)) {
-    const prop = props[propName];
-    if (!prop) continue;
-    const type = prop.type;
-    if (type === 'status') {
-      result[propName] = { status: { name: value } };
-    } else if (type === 'select') {
-      result[propName] = { select: { name: value } };
-    } else if (type === 'checkbox') {
-      result[propName] = { checkbox: !!value };
-    } else if (type === 'number') {
-      result[propName] = { number: value }; 
-    } else if (type === 'date') {
-      result[propName] = { date: value ? { start: value } : null };
-    } else if (type === 'rich_text') {
-      result[propName] = { rich_text: [{ text: { content: String(value) } }] };
-    } else {
-      // Fallback to rich_text
-      result[propName] = { rich_text: [{ text: { content: String(value) } }] };
-    }
-  }
-  return result;
-}
-
-async function logError(error) {
-  const payload = {
-    timestamp: new Date().toISOString(),
-    ...error
-  };
-  if (notion && config.notion.dbErrorsId) {
+  // Initialize external clients defensively so startup can still succeed and report
+  // configuration/runtime problems via /health instead of returning a generic 503.
+  let supabaseInitError = null;
+  let supabase = deps.supabase || null;
+  if (!supabase) {
     try {
-      const props = buildErrorProperties(config, payload);
-      await createErrorRow(notion, config.notion.dbErrorsId, props);
+      supabase = createSupabase(
+        appConfig.supabase.url,
+        appConfig.supabase.serviceRoleKey,
+        appConfig.supabase.projectRef
+      );
     } catch (err) {
-      logger.error('Failed to write error to Notion', err?.message || err);
+      supabaseInitError = err;
+      supabase = null;
+      logger.error('Supabase init failed:', err?.message || err);
     }
   }
-}
+
+  let sesInitError = null;
+  let sesClient = deps.sesClient || null;
+  if (!sesClient) {
+    try {
+      sesClient = createSesClient(appConfig.aws);
+    } catch (err) {
+      sesInitError = err;
+      sesClient = null;
+      logger.error('SES init failed:', err?.message || err);
+    }
+  }
+  const verifySnsMessageSignature = deps.verifySnsSignature || verifySnsSignature;
+  const confirmSnsSubscription = deps.confirmSubscription || confirmSubscription;
+
+  const app = express();
+  app.use(express.json({
+    // AWS SNS commonly posts JSON payloads as text/plain.
+    type: ['application/json', 'text/plain'],
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    }
+  }));
+
+  function authSharedSecret(req) {
+    if (!appConfig.executorSharedSecret) return true;
+    const token = req.headers['x-auth-token'] || req.body?.auth_token;
+    return token === appConfig.executorSharedSecret;
+  }
+
+  function buildNotionUpdateProps(page, updates) {
+    const props = page.properties || {};
+    const result = {};
+    for (const [propName, value] of Object.entries(updates)) {
+      const prop = props[propName];
+      if (!prop) continue;
+      const type = prop.type;
+      if (type === 'status') {
+        result[propName] = { status: { name: value } };
+      } else if (type === 'select') {
+        result[propName] = { select: { name: value } };
+      } else if (type === 'checkbox') {
+        result[propName] = { checkbox: !!value };
+      } else if (type === 'number') {
+        result[propName] = { number: value };
+      } else if (type === 'date') {
+        result[propName] = { date: value ? { start: value } : null };
+      } else if (type === 'rich_text') {
+        result[propName] = { rich_text: [{ text: { content: String(value) } }] };
+      } else {
+        // Fallback to rich_text
+        result[propName] = { rich_text: [{ text: { content: String(value) } }] };
+      }
+    }
+    return result;
+  }
+
+  async function logError(error) {
+    const payload = {
+      timestamp: new Date().toISOString(),
+      ...error
+    };
+    if (notion && appConfig.notion.dbErrorsId) {
+      try {
+        const props = buildErrorProperties(appConfig, payload);
+        await createErrorRow(notion, appConfig.notion.dbErrorsId, props);
+      } catch (err) {
+        logger.error('Failed to write error to Notion', err?.message || err);
+      }
+    }
+  }
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    node: process.version,
+    port: appConfig.port,
+    has_notion: !!notion,
+    has_supabase: !!supabase,
+    has_ses: !!sesClient,
+    supabase_init_error: supabaseInitError ? (supabaseInitError.message || String(supabaseInitError)) : null,
+    ses_init_error: sesInitError ? (sesInitError.message || String(sesInitError)) : null
+  });
 });
 
 app.post('/send-mailout', async (req, res) => {
+  if (!authSharedSecret(req)) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
+  const signature = req.headers['x-notion-signature'];
+  if (signature && appConfig.notion.webhookVerificationToken) {
+    const valid = verifyNotionSignature(req.rawBody, signature, appConfig.notion.webhookVerificationToken);
+    if (!valid) {
+      return res.status(401).json({ error: 'invalid_notion_signature' });
+    }
+  }
+
+  if (req.body?.verification_token) {
+    return res.json({ verification_token: req.body.verification_token });
+  }
+
+  const mailoutId = extractMailoutId(req.body);
+  if (!mailoutId) {
+    return res.status(400).json({ error: 'mailout_id_missing' });
+  }
+
+  let lockAcquired = false;
+
   try {
-    if (!authSharedSecret(req)) {
-      return res.status(401).json({ error: 'unauthorized' });
-    }
-
-    const signature = req.headers['x-notion-signature'];
-    if (signature && config.notion.webhookVerificationToken) {
-      const valid = verifyNotionSignature(req.rawBody, signature, config.notion.webhookVerificationToken);
-      if (!valid) {
-        return res.status(401).json({ error: 'invalid_notion_signature' });
-      }
-    }
-
-    if (req.body?.verification_token) {
-      return res.json({ verification_token: req.body.verification_token });
-    }
-
-    const mailoutId = extractMailoutId(req.body);
-    if (!mailoutId) {
-      return res.status(400).json({ error: 'mailout_id_missing' });
-    }
+    const isDryRun = appConfig.runtime?.dryRunSend || false;
 
     if (!notion) {
       return res.status(500).json({ error: 'notion_not_configured' });
@@ -109,24 +169,34 @@ app.post('/send-mailout', async (req, res) => {
     if (!supabase) {
       return res.status(500).json({ error: 'supabase_not_configured' });
     }
-    if (!sesClient) {
+    if (!sesClient && !isDryRun) {
       return res.status(500).json({ error: 'ses_not_configured' });
     }
-    if (!config.footer.orgName || !config.footer.orgAddress || !config.footer.unsubscribeBaseUrl || !config.footer.unsubscribeSecret) {
+    if (!appConfig.footer.orgName || !appConfig.footer.orgAddress || !appConfig.footer.unsubscribeBaseUrl || !appConfig.footer.unsubscribeSecret) {
       return res.status(500).json({ error: 'footer_env_missing' });
     }
-    if (!config.ses.fromEmail) {
+    if (!appConfig.ses.fromEmail && !isDryRun) {
       return res.status(500).json({ error: 'from_email_missing' });
     }
 
     const page = await getPage(notion, mailoutId);
-    const meta = getPageMeta(page, config.notion);
+    const meta = getPageMeta(page, appConfig.notion);
     if (!meta.subject) {
       await logError({ mailout_id: mailoutId, provider: 'Notion', stage: 'fetch content', error_code: 'subject_required', error_message: 'Subject is missing' });
       return res.status(400).json({ error: 'subject_required' });
     }
 
-    if (!meta.isTest && (meta.status === config.notion.statusSentValue || meta.sentAt)) {
+    // Acquire idempotency lock for non-test mailouts only
+    // This prevents duplicate execution under concurrent trigger calls
+    // Test mode is exempt to allow repeated sends to TEST_EMAILS
+    if (!meta.isTest) {
+      lockAcquired = acquireLock(mailoutId);
+      if (!lockAcquired) {
+        return res.status(409).json({ error: 'send_in_progress' });
+      }
+    }
+
+    if (!meta.isTest && (meta.status === appConfig.notion.statusSentValue || meta.sentAt)) {
       return res.status(409).json({ error: 'mailout_already_sent' });
     }
 
@@ -143,7 +213,7 @@ app.post('/send-mailout', async (req, res) => {
     }
 
     const recipients = meta.isTest
-      ? config.testEmails.map((email) => ({ email }))
+      ? appConfig.testEmails.map((email) => ({ email }))
       : await fetchActiveSubscribers(supabase);
 
     const deduped = dedupEmails(recipients)
@@ -156,48 +226,62 @@ app.post('/send-mailout', async (req, res) => {
     }
     if (!meta.isTest && deduped.length === 0) {
       await logError({ mailout_id: mailoutId, provider: 'Supabase', stage: 'send', error_code: 'no_active_subscribers', error_message: 'No active subscribers' });
-      return res.json({ ok: true, mailout_id: mailoutId, sent: 0, failed: 0 });
+      return res.json({ ok: true, mailout_id: mailoutId, sent: 0, failed: 0, dry_run: isDryRun });
     }
 
-    const rate = Math.max(1, config.ses.rateLimitPerSec);
+    const rate = Math.max(1, appConfig.ses.rateLimitPerSec);
     const minIntervalMs = Math.ceil(1000 / rate);
-    const batchSize = Math.max(1, config.ses.batchSize || 50);
+    const batchSize = Math.max(1, appConfig.ses.batchSize || 50);
 
     let sentCount = 0;
     let failedCount = 0;
 
-    const csvPath = `${config.csvOutputDir}/mailout-${mailoutId}-${Date.now()}.csv`;
+    const csvPath = `${appConfig.csvOutputDir}/mailout-${mailoutId}-${Date.now()}.csv`;
     const headers = ['email', 'status', 'error_message', 'message_id', 'sent_at'];
 
     for (let i = 0; i < deduped.length; i += batchSize) {
       const batch = deduped.slice(i, i + batchSize);
       for (const recipient of batch) {
-        const footerToken = createUnsubToken(recipient.email, config.footer.unsubscribeSecret);
-        const unsubscribeUrl = `${config.footer.unsubscribeBaseUrl}?token=${footerToken}`;
-        const htmlFooter = config.footer.footerHtml
-          ? config.footer.footerHtml
-          : `<hr><p>${config.footer.orgName} — ${config.footer.orgAddress}</p><p><a href="${unsubscribeUrl}">Unsubscribe</a></p>`;
-        const textFooter = config.footer.footerText
-          ? config.footer.footerText
-          : `\n--\n${config.footer.orgName} — ${config.footer.orgAddress}\nUnsubscribe: ${unsubscribeUrl}`;
+        const footerToken = createUnsubToken(recipient.email, appConfig.footer.unsubscribeSecret);
+        const unsubscribeUrl = `${appConfig.footer.unsubscribeBaseUrl}?token=${footerToken}`;
+        // Always append compliance footer so unsubscribe/address cannot be omitted by custom templates.
+        const complianceHtmlFooter = `<hr><p>${appConfig.footer.orgName} — ${appConfig.footer.orgAddress}</p><p><a href="${unsubscribeUrl}">Unsubscribe</a></p>`;
+        const complianceTextFooter = `\n--\n${appConfig.footer.orgName} — ${appConfig.footer.orgAddress}\nUnsubscribe: ${unsubscribeUrl}`;
+        const customHtmlFooter = appConfig.footer.footerHtml ? `${appConfig.footer.footerHtml}\n` : '';
+        const customTextFooter = appConfig.footer.footerText ? `${appConfig.footer.footerText}\n` : '';
+        const htmlFooter = `${customHtmlFooter}${complianceHtmlFooter}`;
+        const textFooter = `${customTextFooter}${complianceTextFooter}`;
 
-        const html = `${rendered.html}\n${htmlFooter}`;
-        const text = `${rendered.text}\n${textFooter}`;
+        const templateVars = {
+          name: resolveRecipientName(recipient),
+          email: recipient.email,
+          from_name: recipient.from_name || ''
+        };
+        const subject = applyTemplate(meta.subject, templateVars);
+        const html = applyTemplate(`${rendered.html}\n${htmlFooter}`, templateVars);
+        const text = applyTemplate(`${rendered.text}\n${textFooter}`, templateVars);
 
         try {
-          const result = await sendEmail(sesClient, {
-            to: recipient.email,
-            subject: meta.subject,
-            html,
-            text,
-            fromEmail: config.ses.fromEmail,
-            fromName: recipient.from_name || config.ses.fromName || config.footer.orgName,
-            replyTo: config.ses.replyTo
-          });
+          let result;
+          if (isDryRun) {
+            // Dry-run mode: skip SES call, simulate success
+            result = { MessageId: `dry-run-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` };
+          } else {
+            // Real send
+            result = await sendEmail(sesClient, {
+              to: recipient.email,
+              subject,
+              html,
+              text,
+              fromEmail: appConfig.ses.fromEmail,
+              fromName: recipient.from_name || appConfig.ses.fromName || appConfig.footer.orgName,
+              replyTo: appConfig.ses.replyTo
+            });
+          }
           sentCount += 1;
           appendCsvRow(csvPath, headers, {
             email: recipient.email,
-            status: 'sent',
+            status: isDryRun ? 'simulated' : 'sent',
             error_message: '',
             message_id: result.MessageId,
             sent_at: new Date().toISOString()
@@ -229,15 +313,15 @@ app.post('/send-mailout', async (req, res) => {
     const bounceRate = sentCount ? 0 : 0;
     const unsubRate = sentCount ? 0 : 0;
 
-    const statusValue = failedCount > 0 ? config.notion.statusFailedValue : config.notion.statusSentValue;
+    const statusValue = failedCount > 0 ? appConfig.notion.statusFailedValue : appConfig.notion.statusSentValue;
     const updates = buildNotionUpdateProps(page, {
-      [config.notion.statusProp]: statusValue,
-      [config.notion.sentAtProp]: new Date().toISOString(),
-      [config.notion.sentCountProp]: sentCount,
-      [config.notion.deliveredCountProp]: deliveredCount,
-      [config.notion.failedCountProp]: failedCount,
-      [config.notion.bounceRateProp]: bounceRate,
-      [config.notion.unsubRateProp]: unsubRate
+      [appConfig.notion.statusProp]: statusValue,
+      [appConfig.notion.sentAtProp]: new Date().toISOString(),
+      [appConfig.notion.sentCountProp]: sentCount,
+      [appConfig.notion.deliveredCountProp]: deliveredCount,
+      [appConfig.notion.failedCountProp]: failedCount,
+      [appConfig.notion.bounceRateProp]: bounceRate,
+      [appConfig.notion.unsubRateProp]: unsubRate
     });
 
     if (Object.keys(updates).length) {
@@ -248,11 +332,16 @@ app.post('/send-mailout', async (req, res) => {
       }
     }
 
-    return res.json({ ok: true, mailout_id: mailoutId, sent: sentCount, failed: failedCount });
+      return res.json({ ok: true, mailout_id: mailoutId, sent: sentCount, failed: failedCount, dry_run: isDryRun });
   } catch (err) {
     logger.error(err);
     await logError({ provider: 'Executor', stage: 'send', error_code: 'unhandled', error_message: err?.message || 'unhandled' });
     return res.status(500).json({ error: 'internal_error' });
+  } finally {
+    // Release the idempotency lock if it was acquired
+    if (lockAcquired) {
+      releaseLock(mailoutId);
+    }
   }
 });
 
@@ -260,7 +349,7 @@ app.get('/unsubscribe', async (req, res) => {
   try {
     const token = req.query.token;
     if (!token) return res.status(400).send('Missing token');
-    const parsed = verifyUnsubToken(token, config.footer.unsubscribeSecret);
+    const parsed = verifyUnsubToken(token, appConfig.footer.unsubscribeSecret);
     if (!parsed) return res.status(400).send('Invalid token');
 
     if (!supabase) {
@@ -283,7 +372,7 @@ app.get('/unsubscribe', async (req, res) => {
 app.post('/ses-events', async (req, res) => {
   try {
     const message = req.body;
-    const valid = await verifySnsSignature(message);
+    const valid = await verifySnsMessageSignature(message);
     if (!valid) return res.status(401).json({ error: 'invalid_sns_signature' });
 
     if (!supabase) {
@@ -291,7 +380,7 @@ app.post('/ses-events', async (req, res) => {
     }
 
     if (message.Type === 'SubscriptionConfirmation') {
-      await confirmSubscription(message);
+      await confirmSnsSubscription(message);
       return res.json({ ok: true, confirmed: true });
     }
 
@@ -336,6 +425,17 @@ app.post('/ses-events', async (req, res) => {
   }
 });
 
-app.listen(config.port, () => {
-  logger.info(`Executor listening on port ${config.port}`);
-});
+  return app;
+}
+
+// Export for testing
+module.exports = { createApp };
+
+// Start server only when run directly
+if (require.main === module) {
+  const app = createApp();
+  const logger = createLogger(config.logLevel);
+  app.listen(config.port, () => {
+    logger.info(`Executor listening on port ${config.port}`);
+  });
+}

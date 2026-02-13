@@ -1,7 +1,15 @@
-const { createClient } = require('@supabase/supabase-js');
+const { assertSupabaseProjectScope } = require('./safety');
 
-function createSupabase(url, serviceRoleKey) {
+function createSupabase(url, serviceRoleKey, expectedProjectRef) {
   if (!url || !serviceRoleKey) return null;
+  // Lazy require so the process can start even if the runtime Node version is misconfigured.
+  // This makes startup failures diagnosable via /health instead of hard 503.
+  const { createClient } = require('@supabase/supabase-js');
+  assertSupabaseProjectScope({
+    url,
+    expectedRef: expectedProjectRef,
+    context: 'createSupabase'
+  });
   return createClient(url, serviceRoleKey, {
     auth: { persistSession: false }
   });

@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "main": "src/server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "check-env": "node check-env.js",
-    "setup": "node check-env.js && echo '\n✅ Configuration valid! Ready to start.'"
+    "setup": "node check-env.js && echo '\n✅ Configuration valid! Ready to start.'",
+    "test": "node --test test/",
+    "test:idempotency": "node --test test/idempotency.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-ses": "^3.617.0",

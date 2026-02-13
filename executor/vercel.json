@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/health", "destination": "/api/health" },
+    { "source": "/unsubscribe", "destination": "/api/unsubscribe" },
+    { "source": "/ses-events", "destination": "/api/ses-events" }
+  ]
+}
+

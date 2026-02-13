@@ -18,6 +18,14 @@ function buildNumber(value) {
   return { number: typeof value === 'number' ? value : null };
 }
 
+function buildSelect(value) {
+  return { select: { name: String(value) } };
+}
+
+function buildEmail(value) {
+  return { email: String(value) };
+}
+
 function buildErrorProperties(cfg, error) {
   const props = {};
   const p = cfg.notion.errorProps;
@@ -27,9 +35,9 @@ function buildErrorProperties(cfg, error) {
   if (error.timestamp) props[p.timestamp] = buildDate(error.timestamp);
   if (error.mailout_id) props[p.mailoutId] = buildRichText(error.mailout_id);
   props[p.isTest] = buildCheckbox(!!error.is_test);
-  if (error.provider) props[p.provider] = buildRichText(error.provider);
-  if (error.stage) props[p.stage] = buildRichText(error.stage);
-  if (error.email) props[p.email] = buildRichText(error.email);
+  if (error.provider) props[p.provider] = buildSelect(error.provider);
+  if (error.stage) props[p.stage] = buildSelect(error.stage);
+  if (error.email) props[p.email] = buildEmail(error.email);
   if (error.error_code) props[p.code] = buildRichText(error.error_code);
   if (error.error_message) props[p.message] = buildRichText(error.error_message);
   if (error.retry_count !== undefined) props[p.retry] = buildNumber(error.retry_count);
