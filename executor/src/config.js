@@ -42,6 +42,14 @@ function parseTestEmails(raw) {
     .map((v) => v.toLowerCase());
 }
 
+function parseListEnv(raw) {
+  if (!raw) return [];
+  return raw
+    .split(/[,;\n\r\t ]+/)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
 const config = {
   port: parseIntEnv('PORT', 3000),
   appBaseUrl: getEnv('APP_BASE_URL', 'http://localhost:3000'),
@@ -89,6 +97,12 @@ const config = {
     secretAccessKey: getEnv('AWS_SECRET_ACCESS_KEY')
   },
 
+  sns: {
+    // If set, /ses-events will reject messages from other topics.
+    // Also required for auto-confirming subscriptions safely.
+    allowedTopicArns: parseListEnv(getEnv('SNS_ALLOWED_TOPIC_ARNS'))
+  },
+
   ses: {
     fromEmail: getEnv('SES_FROM_EMAIL'),
     fromName: getEnv('FROM_NAME'),
@@ -115,4 +129,4 @@ const config = {
   }
 };
 
-module.exports = { config, getEnv, requireEnv, parseTestEmails };
+module.exports = { config, getEnv, requireEnv, parseTestEmails, parseListEnv };

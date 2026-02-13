@@ -379,7 +379,16 @@ app.post('/ses-events', async (req, res) => {
       return res.status(500).json({ error: 'supabase_not_configured' });
     }
 
+    const allowedTopics = appConfig.sns?.allowedTopicArns || [];
+    if (allowedTopics.length && message.TopicArn && !allowedTopics.includes(message.TopicArn)) {
+      return res.status(403).json({ error: 'sns_topic_not_allowed' });
+    }
+
     if (message.Type === 'SubscriptionConfirmation') {
+      // Do not auto-confirm unless an allowlist is configured (prevents hostile SNS topics subscribing).
+      if (!allowedTopics.length) {
+        return res.status(400).json({ error: 'sns_allowlist_required' });
+      }
       await confirmSnsSubscription(message);
       return res.json({ ok: true, confirmed: true });
     }

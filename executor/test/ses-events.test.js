@@ -29,6 +29,9 @@ function makeBaseConfig() {
       projectRef: ''
     },
     aws: {},
+    sns: {
+      allowedTopicArns: ['arn:test']
+    },
     footer: {
       orgName: 'Test Org',
       orgAddress: 'Test Address',
@@ -158,7 +161,7 @@ describe('POST /ses-events', () => {
     const port = server.address().port;
 
     try {
-      const response = await postJson(port, '/ses-events', { Type: 'SubscriptionConfirmation' });
+      const response = await postJson(port, '/ses-events', { Type: 'SubscriptionConfirmation', TopicArn: 'arn:test' });
       assert.strictEqual(response.statusCode, 200);
       assert.deepStrictEqual(response.body, { ok: true, confirmed: true });
       assert.strictEqual(confirmed, true);
@@ -181,6 +184,7 @@ describe('POST /ses-events', () => {
     try {
       const message = {
         Type: 'Notification',
+        TopicArn: 'arn:test',
         Message: JSON.stringify({
           notificationType: 'Bounce',
           mail: { destination: ['bounced@example.com'] },
@@ -215,6 +219,7 @@ describe('POST /ses-events', () => {
     try {
       const message = {
         Type: 'Notification',
+        TopicArn: 'arn:test',
         Message: JSON.stringify({
           notificationType: 'Complaint',
           mail: { destination: ['complaint@example.com'] }
@@ -246,6 +251,7 @@ describe('POST /ses-events', () => {
     try {
       const raw = JSON.stringify({
         Type: 'Notification',
+        TopicArn: 'arn:test',
         Message: JSON.stringify({
           notificationType: 'Bounce',
           mail: { destination: ['plaintext@example.com'] },

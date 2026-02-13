@@ -1,4 +1,5 @@
 const { getSupabase, readJsonBody } = require('./_shared');
+const { config } = require('./_shared');
 const { verifySnsSignature, confirmSubscription } = require('../src/sns');
 const { updateSubscriberStatus } = require('../src/supabase');
 
@@ -34,7 +35,19 @@ module.exports = async function handler(req, res) {
     }));
   }
 
+  const allowedTopics = config.sns?.allowedTopicArns || [];
+  if (allowedTopics.length && message.TopicArn && !allowedTopics.includes(message.TopicArn)) {
+    res.statusCode = 403;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ error: 'sns_topic_not_allowed' }));
+  }
+
   if (message.Type === 'SubscriptionConfirmation') {
+    if (!allowedTopics.length) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ error: 'sns_allowlist_required' }));
+    }
     await confirmSubscription(message);
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
@@ -82,4 +95,3 @@ module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify({ ok: true }));
 };
-
