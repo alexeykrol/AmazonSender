@@ -16,6 +16,7 @@ const { appendCsvRow } = require('./csv');
 const { sleep, dedupEmails, extractMailoutId, isLikelyEmail, resolveRecipientName, applyTemplate } = require('./utils');
 const { buildErrorProperties } = require('./errors');
 const { acquireLock, releaseLock } = require('./idempotency');
+const { startNotionPoller } = require('./poller');
 
 /**
  * Creates and configures the Express app with optional dependency injection.
@@ -471,7 +472,20 @@ module.exports = { createApp };
 if (require.main === module) {
   const app = createApp();
   const logger = createLogger(config.logLevel);
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     logger.info(`Executor listening on port ${config.port}`);
   });
+
+  // Optional Notion polling to enable a "button-like" UX:
+  // user sets Status="Send" in Notion and the local executor picks it up.
+  const notion = createNotionClient(config.notion.token);
+  const poller = startNotionPoller({ notion, cfg: config, logger });
+
+  function shutdown(signal) {
+    logger.info(`${signal} received, shutting down...`);
+    try { poller.stop(); } catch {}
+    server.close(() => process.exit(0));
+  }
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
