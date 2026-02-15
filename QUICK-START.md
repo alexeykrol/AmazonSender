@@ -21,7 +21,7 @@ CREATE INDEX idx_subscribers_status ON subscribers(status);
 
 ### 2. Notion Databases (2 min)
 
-**"Письма"**: Name (title), Status (status: Draft/Ready/Send/Failed), Test (checkbox), Sent At (date), Sent Count (number), Delivered Count (number)
+**"Письма"**: Name (title), Status (select: Not started/In progress/Done/Send/Send real/Reset), Test (checkbox), Sent At (date), Sent Count (number), Delivered Count (number)
 
 **"Ошибки"**: Name (title), Timestamp (date), Mailout ID (text), Error Message (text)
 
@@ -71,4 +71,8 @@ TEST_EMAILS=test1@example.com,test2@example.com
 
 ---
 
-Full details: [ACTION-PLAN.md](ACTION-PLAN.md)
+## Next Steps
+
+- **User Guide:** [README.md](README.md) - Step-by-step instructions for non-technical users
+- **Technical Docs:** [executor/README.md](executor/README.md) - API endpoints, database schemas, deployment
+- **Credentials:** [GET-CREDENTIALS.md](GET-CREDENTIALS.md) - How to get AWS, Notion, and Supabase credentials
