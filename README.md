@@ -48,23 +48,10 @@ Should show: `{"ok":true}`
 
 This sends to ALL active subscribers - double-check everything first!
 
-**In Terminal - enable real sending:**
-```bash
-cd /path/to/AmazonSender/executor
-# Edit .env file: set ALLOW_NON_TEST_SEND=true
-bash tools/macos/agent.sh restart
-```
-
 **In Notion:**
 1. Uncheck the "Test" checkbox
 2. Set Status to "Send real"
 3. Wait for Status to become "Done"
-
-**After sending - turn protection back on:**
-```bash
-# Edit .env file: set ALLOW_NON_TEST_SEND=false
-bash tools/macos/agent.sh restart
-```
 
 ## Understanding the 3 Safety Modes
 
@@ -81,10 +68,11 @@ When "Test" is checked, emails ONLY go to `TEST_EMAILS` - even if you accidental
 Set `DRY_RUN_SEND=true` in `.env` to simulate everything without sending any emails. The system processes the full flow but skips the actual SES calls.
 
 **Real Send Requirements:**
-ALL of these must be true:
+BOTH of these must be true:
 - Test checkbox is unchecked
 - Status is "Send real"
-- `ALLOW_NON_TEST_SEND=true` in `.env`
+
+**Optional Legacy Bypass:** `ALLOW_NON_TEST_SEND=true` in `.env` allows real sends with just Status="Send" (not recommended - reduces safety guardrails)
 
 ## Managing the Background Agent
 

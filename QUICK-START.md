@@ -21,7 +21,7 @@ CREATE INDEX idx_subscribers_status ON subscribers(status);
 
 ### 2. Notion Databases (2 min)
 
-**"Письма"**: Name (title), Status (select: Not started/In progress/Done/Send/Send real/Reset), Test (checkbox), Sent At (date), Sent Count (number), Delivered Count (number)
+**"Письма"**: Name (title), Status (status: Not started/In progress/Done/Send/Send real/Reset), Test (checkbox), Sent At (date), Sent Count (number), Delivered Count (number)
 
 **"Ошибки"**: Name (title), Timestamp (date), Mailout ID (text), Error Message (text)
 

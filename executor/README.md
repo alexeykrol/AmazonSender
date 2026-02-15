@@ -101,22 +101,12 @@ bash tools/macos/agent.sh install
 
 Это необратимо: письмо уйдет всем `active` подписчикам в Supabase.
 
-1) (Terminal) **Разреши** разовую реальную отправку:
-   - Открой файл `.env` в `executor/`
-   - Найди строку `ALLOW_NON_TEST_SEND=` и поставь:
-     - `ALLOW_NON_TEST_SEND=true`
-   - Перезапусти агента:
-```bash
-cd /path/to/AmazonSender/executor
-bash tools/macos/agent.sh restart
-```
-2) (Notion) В строке письма:
+1) (Notion) В строке письма:
    - выключи `Test` (сними галочку)
    - поставь `Status = Send real` (вручную)
-3) Подожди, пока `Status` станет `Done`.
-4) (Рекомендуется) Сразу после рассылки верни защиту обратно:
-   - в `.env` поставь `ALLOW_NON_TEST_SEND=false` (или убери строку)
-   - `bash tools/macos/agent.sh restart`
+2) Подожди, пока `Status` станет `Done`.
+
+**Опциональный легаси-обход (не рекомендуется):** Если поставить `ALLOW_NON_TEST_SEND=true` в `.env`, то можно отправлять реальные рассылки через просто `Status = Send`. Это снижает защиту и не рекомендуется.
 
 ### 4) Если письма не пришли (быстрая проверка)
 
