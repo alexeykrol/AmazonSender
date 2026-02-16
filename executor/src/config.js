@@ -62,12 +62,19 @@ const config = {
     webhookVerificationToken: getEnv('NOTION_WEBHOOK_VERIFICATION_TOKEN'),
     pollIntervalMs: parseIntEnv('NOTION_POLL_INTERVAL', 0),
     triggerStatusValue: getEnv('NOTION_TRIGGER_STATUS_VALUE', 'Send'),
+    // For safety, we use a separate trigger value for non-test sends so a
+    // mistaken "Send" click on a real mailout won't blast the whole list.
+    triggerStatusRealValue: getEnv('NOTION_TRIGGER_STATUS_REAL_VALUE', 'Send real'),
+    // Optional: reset a duplicated mailout by clearing analytics fields.
+    triggerStatusResetValue: getEnv('NOTION_TRIGGER_STATUS_RESET_VALUE', 'Reset'),
     inProgressStatusValue: getEnv('NOTION_STATUS_IN_PROGRESS_VALUE', 'In progress'),
     notStartedStatusValue: getEnv('NOTION_STATUS_NOT_STARTED_VALUE', 'Not started'),
     subjectProp: getEnv('NOTION_SUBJECT_PROP', 'Subject'),
     statusProp: getEnv('NOTION_STATUS_PROP', 'Status'),
-    statusSentValue: getEnv('NOTION_STATUS_SENT_VALUE', 'Send'),
-    statusFailedValue: getEnv('NOTION_STATUS_FAILED_VALUE', 'Failed'),
+    // "Done" is the common final status name in Notion boards.
+    statusSentValue: getEnv('NOTION_STATUS_SENT_VALUE', 'Done'),
+    // Allow users to keep a minimal schema by reusing statusSentValue.
+    statusFailedValue: getEnv('NOTION_STATUS_FAILED_VALUE', getEnv('NOTION_STATUS_SENT_VALUE', 'Done')),
     testProp: getEnv('NOTION_TEST_PROP', 'Test'),
     sentAtProp: getEnv('NOTION_SENT_AT_PROP', 'Sent At'),
     sentCountProp: getEnv('NOTION_SENT_COUNT_PROP', 'Sent Count'),

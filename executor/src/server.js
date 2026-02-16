@@ -129,6 +129,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     node: process.version,
     port: appConfig.port,
+    dry_run: appConfig.runtime?.dryRunSend || false,
     has_notion: !!notion,
     has_supabase: !!supabase,
     has_ses: !!sesClient,
@@ -474,6 +475,11 @@ if (require.main === module) {
   const logger = createLogger(config.logLevel);
   const server = app.listen(config.port, () => {
     logger.info(`Executor listening on port ${config.port}`);
+  });
+  server.on('error', (err) => {
+    // Common local UX issue: port already in use (another executor instance still running).
+    logger.error('Server failed to start:', err?.message || err);
+    process.exit(1);
   });
 
   // Optional Notion polling to enable a "button-like" UX:

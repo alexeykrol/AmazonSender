@@ -50,3 +50,23 @@ npm-debug.log*
 
 # Local quarantine archives (framework sanitation)
 _archive_framework_cleanup_*/
+
+# Framework and coordination system (internal/private)
+.claude/
+.codex/
+.coord/
+CLAUDE.md
+AGENTS.md
+
+# IDE workspace files
+*.code-workspace
+
+# Executor temporary build artifacts
+executor/out/
+executor/tmp/
+executor-*.zip
+executor.zip
+executor.clean.zip
+
+# Legacy framework paths
+reports/

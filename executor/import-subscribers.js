@@ -12,7 +12,7 @@
  *   node import-subscribers.js <csv-file-path>
  *
  * Example:
- *   node import-subscribers.js "/Users/alexeykrolmini/Downloads/База данных/Waite.csv"
+ *   node import-subscribers.js "/path/to/subscribers.csv"
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
