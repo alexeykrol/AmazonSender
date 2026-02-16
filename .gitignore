@@ -70,3 +70,5 @@ executor.clean.zip
 
 # Legacy framework paths
 reports/
+src/framework-core/
+security/
